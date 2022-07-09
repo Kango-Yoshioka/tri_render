@@ -499,7 +499,11 @@ int main(int argc, char *argv[]) {
      * メッシュの配置
      */
     const int num_of_elements = 2;
-    triMeshes = (TriMesh *) malloc(sizeof(TriMesh) * num_of_elements);
+    /**
+     * vectorで要素数を確認できるようにすれば解決？？
+     * もしくは要素数をグローバルで管理する？？
+     */
+    triMeshes = new TriMesh[num_of_elements];
     memset(triMeshes, 0, sizeof(TriMesh) * num_of_elements);
     triMeshes[0].setTriMesh(Eigen::Vector3d{0, 1, 0},
                             Eigen::Vector3d{-1, 0, 0},
