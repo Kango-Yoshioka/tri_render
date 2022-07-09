@@ -1,0 +1,5 @@
+# ninja log v5
+31	2032	6789998109516882	CMakeFiles/tri_render.dir/src/util.cpp.obj	bf2a00d6a910b4b
+27	2470	6789998113909432	CMakeFiles/tri_render.dir/src/TriMesh.cpp.obj	28ca7c7561809ee5
+23	3587	6789998125009298	CMakeFiles/tri_render.dir/src/Camera.cpp.obj	e38b425815f87ea9
+0	6535	6789998154411231	CMakeFiles/tri_render.dir/src/main.cpp.obj	61502da837ab9de6
