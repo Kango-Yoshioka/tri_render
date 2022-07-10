@@ -1,10 +1,4 @@
-#define EIGEN_DISABLE_UNALIGNED_ARRAY_ASSERT
-#define EIGEN_DONT_VECTORIZE
-
 #include <GL/freeglut.h>
-#include <Windows.h>
-
-#define _USE_MATH_DEFINES
 
 #include <math.h>
 #include <vector>
@@ -52,16 +46,16 @@ std::vector<int> lightTriMeshIdxes;
 
 std::vector<double> sample_lights_cdf;
 
-const int sample_num = 100;
+const int sample_num = 20;
 
-double intensity = 10;
+double intensity = 100;
 
 float *g_AccumulationBuffer = nullptr;
 int *g_CountBuffer = nullptr;
 
 bool save_flag = false;
 
-constexpr int save_border = 5000;
+constexpr int save_border = 1000;
 
 const Eigen::Vector3d background_color{215, 230, 250};
 
@@ -278,9 +272,26 @@ void directionalSampling(const int &pixel_idx, Eigen::Vector3d &pixel_color,
     // 四方八方にレイを飛ばして、色を決める
     Eigen::Vector3d sum{0.0, 0.0, 0.0};
     const Eigen::Vector3d x = ray.o + ray_hit.t * ray.d;
+    const TriMesh diffuseTriMesh = triMeshes[ray_hit.mesh_idx];
     for (int n = 0; n < sample_num; n++) {
         const double theta = asin(sqrt(drand48()));
         const double phi = 2 * M_PI * drand48();
+
+        /**
+         * 拡散面上の半球でサンプリングをする
+         * 拡散面で新たに基底ベクトルを設定しランダムな方向omegaを決定する
+         * p = (v2 - v1).normalized(), q = n, r = (q × p).normalized()
+         * というp, q, rの三本のベクトルを基底ベクトルとしてランダムな方向omega
+         * 決めたとすると、デカルト座標系においては,
+         * x = ox * px + oy * qx + oz * rx
+         * y = ox * py + oy * qy + oz * ry
+         * x = ox * pz + oy * qz + oz * rz と表せる
+         */
+
+        const Eigen::Vector3d p = (diffuseTriMesh.v2 -
+                                   diffuseTriMesh.v1).normalized();
+        const Eigen::Vector3d q = diffuseTriMesh.n;
+        const Eigen::Vector3d r = (q.cross(p)).normalized();
 
         const Eigen::Vector3d omega{
                 sin(theta) * cos(phi),
@@ -288,9 +299,14 @@ void directionalSampling(const int &pixel_idx, Eigen::Vector3d &pixel_color,
                 sin(theta) * sin(phi)
         };
 
+        const Eigen::Vector3d sampledDirection = {
+                omega.x() * p.x() + omega.y() * q.x() + omega.z() * r.x(),
+                omega.x() * p.y() + omega.y() * q.y() + omega.z() * r.y(),
+                omega.x() * p.z() + omega.y() * q.z() + omega.z() * r.z()
+        };
         Ray _ray;
         _ray.o = x;
-        _ray.d = omega;
+        _ray.d = sampledDirection;
 
         RayHit _ray_hit;
         rayTracing(_ray, _ray_hit);
@@ -298,12 +314,13 @@ void directionalSampling(const int &pixel_idx, Eigen::Vector3d &pixel_color,
         // 飛ばしたレイが面に当たり、かつ光源である時、
         if (_ray_hit.mesh_idx != -1 &&
             triMeshes[_ray_hit.mesh_idx].is_light) {
-            sum = sum + intensity * triMeshes[_ray_hit.mesh_idx].color;
+            const Eigen::Vector3d L_in = intensity *
+                                         triMeshes[_ray_hit.mesh_idx].color;
+            sum = sum + L_in * diffuseTriMesh.kd;
         }
     }
     const Eigen::Vector3d I_n = sum;
-    pixel_color = triMeshes[ray_hit.mesh_idx].kd *
-                  triMeshes[ray_hit.mesh_idx].color.cwiseProduct(I_n);
+    pixel_color = diffuseTriMesh.color.cwiseProduct(I_n);
     g_CountBuffer[pixel_idx] += sample_num;
 }
 
@@ -319,7 +336,9 @@ void sampleLightTriMesh(int &out_sampled_light_triMesh_idx) {
     exit(EXIT_FAILURE);
 }
 
-void isVisible(const Eigen::Vector3d &x, const Eigen::Vector3d &y, const int &x_triMesh_idx, const int &y_triMesh_idx, int &out_is_visible) {
+void isVisible(const Eigen::Vector3d &x, const Eigen::Vector3d &y,
+               const int &x_triMesh_idx, const int &y_triMesh_idx,
+               int &out_is_visible) {
     int is_visible_x_y;
     int is_visible_y_x;
     /**
@@ -361,8 +380,8 @@ void isVisible(const Eigen::Vector3d &x, const Eigen::Vector3d &y, const int &x_
 void areaSampling(const int &pixel_idx, Eigen::Vector3d &pixel_color,
                   const Ray &ray, const RayHit &ray_hit) {
     Eigen::Vector3d sum{0.0, 0.0, 0.0};
+    const TriMesh diffuseTriMesh = triMeshes[ray_hit.mesh_idx];
     for (int i = 0; i < sample_num; i++) {
-        // L_iを用意する
         /**
          * 複数光源の中から1つをランダムに選ぶ。
          */
@@ -375,29 +394,34 @@ void areaSampling(const int &pixel_idx, Eigen::Vector3d &pixel_color,
          */
         const double gamma = 1 - sqrt(drand48());
         const double beta = (1 - gamma) * drand48();
-        // 実際に３次元上に変換する
         const Eigen::Vector3d y =
-                sampledLightTriMesh.v1 + beta * (sampledLightTriMesh.v2 - sampledLightTriMesh.v1) + gamma * (sampledLightTriMesh.v3 - sampledLightTriMesh.v1);
+                sampledLightTriMesh.v1 +
+                beta * (sampledLightTriMesh.v2 - sampledLightTriMesh.v1) +
+                gamma * (sampledLightTriMesh.v3 - sampledLightTriMesh.v1);
         const Eigen::Vector3d x = ray.o + ray_hit.t * ray.d;
         const Eigen::Vector3d y_x = x - y;
         const Eigen::Vector3d w = y_x.normalized();
-        // 光源から飛ばしたときに間に遮蔽物があるかどうかを判定するべきだがスキップします。
+
+        /**
+         * 光源から拡散面へと光が届くかどうかを判定する。
+         */
         int is_visible;
-        isVisible(x, y, ray_hit.mesh_idx, sampled_light_triMesh_idx, is_visible);
+        isVisible(x, y, ray_hit.mesh_idx, sampled_light_triMesh_idx,
+                  is_visible);
         const Eigen::Vector3d ny = sampledLightTriMesh.n;
-        const Eigen::Vector3d nx = triMeshes[ray_hit.mesh_idx].n;
+        const Eigen::Vector3d nx = diffuseTriMesh.n;
 
         const double cosx = (-w).dot(nx);
         const double cosy = w.dot(ny);
 
         const Eigen::Vector3d L_in = intensity * sampledLightTriMesh.color;
-        const double fr = triMeshes[ray_hit.mesh_idx].kd / M_PI;
+        const double fr = diffuseTriMesh.kd / M_PI;
         const double geometry = cosx * cosy / y_x.squaredNorm() * is_visible;
 
         sum = sum + S_A * L_in * fr * geometry;
     }
     const Eigen::Vector3d I_n = sum;
-    pixel_color = triMeshes[ray_hit.mesh_idx].color.cwiseProduct(I_n);
+    pixel_color = diffuseTriMesh.color.cwiseProduct(I_n);
     g_CountBuffer[pixel_idx] += sample_num;
 }
 
@@ -596,6 +620,8 @@ int main(int argc, char *argv[]) {
     /**
      * メッシュの配置
      */
+
+    /**
     triMeshes.push_back(
             TriMesh(Eigen::Vector3d{-2.0, 2.25, -2.0},
                     Eigen::Vector3d{-3.0, 0.0, -2.0},
@@ -663,7 +689,152 @@ int main(int argc, char *argv[]) {
                     Eigen::Vector3d{-1.5, 0.5, -1.0},
                     Eigen::Vector3d{255.0, 255.0, 255.0}, false, 1.0
             ));
+    **/
 
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{-2.5, -1.5, 1.5},
+                    Eigen::Vector3d{2.5, -1.5, 1.5},
+                    Eigen::Vector3d{-2.5, -1.5, -3.0},
+                    Eigen::Vector3d{255, 255, 255}, false, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{2.5, -1.5, -3.0},
+                    Eigen::Vector3d{-2.5, -1.5, -3.0},
+                    Eigen::Vector3d{2.5, -1.5, 1.5},
+                    Eigen::Vector3d{255, 255, 255}, false, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{-2.5, -1.5, -3.0},
+                    Eigen::Vector3d{2.5, -1.5, -3.0},
+                    Eigen::Vector3d{-2.5, 3.0, -3.0},
+                    Eigen::Vector3d{255, 255, 255}, false, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{2.5, 3.0, -3.0},
+                    Eigen::Vector3d{-2.5, 3.0, -3.0},
+                    Eigen::Vector3d{2.5, -1.5, -3.0},
+                    Eigen::Vector3d{255, 255, 255}, false, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{-2.5, -1.5, 1.5},
+                    Eigen::Vector3d{-2.5, -1.5, -3.0},
+                    Eigen::Vector3d{-2.5, 3.0, 1.5},
+                    Eigen::Vector3d{255, 255, 255}, false, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{-2.5, 3.0, -3.0},
+                    Eigen::Vector3d{-2.5, 3.0, 1.5},
+                    Eigen::Vector3d{-2.5, -1.5, -3.0},
+                    Eigen::Vector3d{255, 255, 255}, false, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{2.5, -1.5, -3.0},
+                    Eigen::Vector3d{2.5, -1.5, 1.5},
+                    Eigen::Vector3d{2.5, 3.0, -3.0},
+                    Eigen::Vector3d{255, 255, 255}, false, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{2.5, 3.0, 1.5},
+                    Eigen::Vector3d{2.5, 3.0, -3.0},
+                    Eigen::Vector3d{2.5, -1.5, 1.5},
+                    Eigen::Vector3d{255, 255, 255}, false, 1.0
+            ));
+
+    /**
+     * light1
+     */
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{0.0, 0.3, -1.45},
+                    Eigen::Vector3d{0.15, -0.3, -1.6},
+                    Eigen::Vector3d{-0.15, -0.3, -1.6},
+                    Eigen::Vector3d{255, 105, 180}, true, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{0.0, 0.3, -1.45},
+                    Eigen::Vector3d{0.0, -0.3, -1.3},
+                    Eigen::Vector3d{0.15, -0.3, -1.6},
+                    Eigen::Vector3d{255, 105, 180}, true, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{0.0, 0.3, -1.45},
+                    Eigen::Vector3d{-0.15, -0.3, -1.6},
+                    Eigen::Vector3d{0.0, -0.3, -1.3},
+                    Eigen::Vector3d{255, 105, 180}, true, 1.0
+            ));
+
+    /**
+     * light2
+     */
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{1.4, 0.3, 0.0},
+                    Eigen::Vector3d{1.55, -0.3, -0.15},
+                    Eigen::Vector3d{1.25, -0.3, -0.15},
+                    Eigen::Vector3d{105, 255, 255}, true, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{1.4, 0.3, 0.0},
+                    Eigen::Vector3d{1.4, -0.3, 0.15},
+                    Eigen::Vector3d{1.55, -0.3, -0.15},
+                    Eigen::Vector3d{105, 255, 255}, true, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{1.4, 0.3, 0.0},
+                    Eigen::Vector3d{1.25, -0.3, -0.15},
+                    Eigen::Vector3d{1.4, -0.3, 0.15},
+                    Eigen::Vector3d{105, 255, 255}, true, 1.0
+            ));
+
+    /**
+     * light3 105 G:255 B:105
+     */
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{-1.4, 0.3, 0.0},
+                    Eigen::Vector3d{-1.25, -0.3, -0.15},
+                    Eigen::Vector3d{-1.55, -0.3, -0.15},
+                    Eigen::Vector3d{105, 255, 105}, true, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{-1.4, 0.3, 0.0},
+                    Eigen::Vector3d{-1.4, -0.3, 0.15},
+                    Eigen::Vector3d{-1.25, -0.3, -0.15},
+                    Eigen::Vector3d{105, 255, 105}, true, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{-1.4, 0.3, 0.0},
+                    Eigen::Vector3d{-1.55, -0.3, -0.15},
+                    Eigen::Vector3d{-1.4, -0.3, 0.15},
+                    Eigen::Vector3d{105, 255, 105}, true, 1.0
+            ));
 
     /**
      * 配置メッシュの情報の表示
@@ -691,7 +862,8 @@ int main(int argc, char *argv[]) {
         if (i == 0) {
             sample_lights_cdf.push_back(triMeshes[lightTriMeshIdxes[i]].A);
         } else {
-            sample_lights_cdf.push_back(sample_lights_cdf[i - 1] + triMeshes[lightTriMeshIdxes[i]].A);
+            sample_lights_cdf.push_back(sample_lights_cdf[i - 1] +
+                                        triMeshes[lightTriMeshIdxes[i]].A);
         }
         S_A += triMeshes[lightTriMeshIdxes[i]].A;
     }

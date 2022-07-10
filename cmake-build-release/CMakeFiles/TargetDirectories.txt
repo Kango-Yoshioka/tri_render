@@ -1,3 +1,3 @@
-C:/Users/kango/CGProgramming/CLion/workspace/tri_render/cmake-build-release/CMakeFiles/tri_render.dir
-C:/Users/kango/CGProgramming/CLion/workspace/tri_render/cmake-build-release/CMakeFiles/edit_cache.dir
-C:/Users/kango/CGProgramming/CLion/workspace/tri_render/cmake-build-release/CMakeFiles/rebuild_cache.dir
+C:/CGProgramming/CLion/workspace/tri_render/cmake-build-release/CMakeFiles/tri_render.dir
+C:/CGProgramming/CLion/workspace/tri_render/cmake-build-release/CMakeFiles/edit_cache.dir
+C:/CGProgramming/CLion/workspace/tri_render/cmake-build-release/CMakeFiles/rebuild_cache.dir
