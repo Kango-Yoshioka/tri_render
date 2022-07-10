@@ -9,6 +9,7 @@
 #include "util.h"
 
 #include "Camera.h"
+#include "TriMeshObj.h"
 
 enum MouseMode {
     MM_CAMERA
@@ -690,70 +691,36 @@ int main(int argc, char *argv[]) {
                     Eigen::Vector3d{255.0, 255.0, 255.0}, false, 1.0
             ));
     **/
+    TriMeshObj triMeshObjs[4];
+    triMeshObjs[0] = TriMeshObj(Eigen::Vector3d{255, 255, 255},
+                                false, 1.0);
+    triMeshObjs[0].setRectangleMesh(Eigen::Vector3d{0.0, -1.5, 0.0},
+                                    Eigen::Vector3d{2.5, 0.0, 0.0},
+                                    Eigen::Vector3d{0.0, 0.0, -3.0});
 
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{-2.5, -1.5, 1.5},
-                    Eigen::Vector3d{2.5, -1.5, 1.5},
-                    Eigen::Vector3d{-2.5, -1.5, -3.0},
-                    Eigen::Vector3d{255, 255, 255}, false, 1.0
-            ));
+    triMeshObjs[1] = TriMeshObj(Eigen::Vector3d{255, 255, 255},
+                                false, 1.0);
+    triMeshObjs[1].setRectangleMesh(Eigen::Vector3d{0.0, 0.75, -3.0},
+                                    Eigen::Vector3d{2.5, 0.0, 0.0},
+                                    Eigen::Vector3d{0.0, 2.25, 0.0});
 
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{2.5, -1.5, -3.0},
-                    Eigen::Vector3d{-2.5, -1.5, -3.0},
-                    Eigen::Vector3d{2.5, -1.5, 1.5},
-                    Eigen::Vector3d{255, 255, 255}, false, 1.0
-            ));
+    triMeshObjs[2] = TriMeshObj(Eigen::Vector3d{255, 255, 255},
+                                false, 1.0);
+    triMeshObjs[2].setRectangleMesh(Eigen::Vector3d{-2.5, 0.75, -0.75},
+                                    Eigen::Vector3d{0.0, 0.0, -2.25},
+                                    Eigen::Vector3d{0.0, 2.25, 0.0});
 
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{-2.5, -1.5, -3.0},
-                    Eigen::Vector3d{2.5, -1.5, -3.0},
-                    Eigen::Vector3d{-2.5, 3.0, -3.0},
-                    Eigen::Vector3d{255, 255, 255}, false, 1.0
-            ));
+    triMeshObjs[3] = TriMeshObj(Eigen::Vector3d{255, 255, 255},
+                                false, 1.0);
+    triMeshObjs[3].setRectangleMesh(Eigen::Vector3d{2.5, 0.75, -0.75},
+                                    Eigen::Vector3d{0.0, 0.0, 2.25},
+                                    Eigen::Vector3d{0.0, 2.25, 0.0});
 
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{2.5, 3.0, -3.0},
-                    Eigen::Vector3d{-2.5, 3.0, -3.0},
-                    Eigen::Vector3d{2.5, -1.5, -3.0},
-                    Eigen::Vector3d{255, 255, 255}, false, 1.0
-            ));
-
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{-2.5, -1.5, 1.5},
-                    Eigen::Vector3d{-2.5, -1.5, -3.0},
-                    Eigen::Vector3d{-2.5, 3.0, 1.5},
-                    Eigen::Vector3d{255, 255, 255}, false, 1.0
-            ));
-
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{-2.5, 3.0, -3.0},
-                    Eigen::Vector3d{-2.5, 3.0, 1.5},
-                    Eigen::Vector3d{-2.5, -1.5, -3.0},
-                    Eigen::Vector3d{255, 255, 255}, false, 1.0
-            ));
-
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{2.5, -1.5, -3.0},
-                    Eigen::Vector3d{2.5, -1.5, 1.5},
-                    Eigen::Vector3d{2.5, 3.0, -3.0},
-                    Eigen::Vector3d{255, 255, 255}, false, 1.0
-            ));
-
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{2.5, 3.0, 1.5},
-                    Eigen::Vector3d{2.5, 3.0, -3.0},
-                    Eigen::Vector3d{2.5, -1.5, 1.5},
-                    Eigen::Vector3d{255, 255, 255}, false, 1.0
-            ));
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < triMeshObjs[i].triMeshes.size(); j++) {
+            triMeshes.push_back(triMeshObjs[i].triMeshes[j]);
+        }
+    }
 
     /**
      * light1

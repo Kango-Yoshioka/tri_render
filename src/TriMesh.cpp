@@ -19,7 +19,7 @@ TriMesh::TriMesh(const Eigen::Vector3d &v1, const Eigen::Vector3d &v2,
     /**
      * 面積の計算
      */
-     this->A = 0.5 * ((v2 - v1).cross(v3- v1)).norm();
+    this->A = 0.5 * ((v2 - v1).cross(v3 - v1)).norm();
 }
 
 /**
@@ -59,7 +59,7 @@ void TriMesh::printInfo() {
     std::cout << "n:\t{" << this->n.x() << "," << this->n.y() << "," <<
               this->n.z() << "}" << std::endl;
     std::cout << "isLight:\t" << this->is_light << std::endl;
-    std::cout << "color:\t{" << this->color.x() << "," << this->color.y() <<
+    std::cout << "color255:\t{" << this->color.x() << "," << this->color.y() <<
               "," << this->color.z() << "}" << std::endl;
     std::cout << "kd:\t" << this->kd << std::endl;
     std::cout << "-------------------------------" << std::endl;
