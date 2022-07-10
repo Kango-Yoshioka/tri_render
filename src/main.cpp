@@ -9,7 +9,6 @@
 #include <math.h>
 #include <vector>
 #include <iostream>
-#include <ctime>
 #include <bits/stdc++.h>
 
 #include "TriMesh.h"
@@ -26,16 +25,6 @@ struct RayHit {
     double alpha;
     double beta;
     int mesh_idx;
-};
-
-struct RectangleObj {
-    Eigen::Vector3d centerPos;
-    Eigen::Vector3d widthVec;
-    Eigen::Vector3d heightVec;
-    Eigen::Vector3d color;
-    Eigen::Vector3d n;
-    bool is_light;
-    double kd;
 };
 
 const double __FAR__ = 1.0e33;
@@ -58,33 +47,112 @@ double g_FrameSize_WindowSize_Scale_y = 1.0;
 
 Camera g_Camera;
 
-RectangleObj rects[2];
+std::vector<TriMesh> triMeshes;
+std::vector<int> lightTriMeshIdxes;
 
-TriMesh *triMeshes;
+std::vector<double> sample_lights_cdf;
 
 const int sample_num = 100;
 
 double intensity = 10;
+
+float *g_AccumulationBuffer = nullptr;
+int *g_CountBuffer = nullptr;
+
+bool save_flag = false;
+
+constexpr int save_border = 5000;
+
+const Eigen::Vector3d background_color{215, 230, 250};
+
+constexpr int method_idx = 2;
+
+double S_A = 0; // 光源面の面積の合計
 
 void initFilm() {
     g_FilmBuffer = (float *) malloc(
             sizeof(float) * g_FilmWidth * g_FilmHeight * 3);
     memset(g_FilmBuffer, 0, sizeof(float) * g_FilmWidth * g_FilmHeight * 3);
 
+    g_AccumulationBuffer = (float *) malloc(sizeof(float) * g_FilmWidth *
+                                            g_FilmHeight * 3);
+    g_CountBuffer = (int *) malloc(sizeof(int) * g_FilmWidth * g_FilmHeight);
     glGenTextures(1, &g_FilmTexture);
     glBindTexture(GL_TEXTURE_2D, g_FilmTexture);
 
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, g_FilmWidth, g_FilmHeight, 0, GL_RGB,
-                 GL_FLOAT, g_FilmBuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, g_FilmWidth, g_FilmHeight, 0,
+                 GL_RGB, GL_FLOAT, g_FilmBuffer);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 }
 
+void saveFilm() {
+    std::cout << "Save start" << std::endl;
+    std::ofstream writing_file;
+    std::string filename = "method_" + std::to_string(method_idx) + ".ppm";
+
+    const int scale = 10000;
+
+    writing_file.open(filename, std::ios::out);
+    const std::string header = "P3\n" + std::to_string(g_FilmWidth) + " " +
+                               std::to_string(g_FilmHeight) + "\n" +
+                               std::to_string(scale);
+    writing_file << header << std::endl;
+
+    for (int i = 0; i < g_FilmHeight * g_FilmWidth; i++) {
+        std::string ppm_text = "";
+
+        ppm_text += std::to_string(int(g_FilmBuffer[i * 3] * scale)) + " "
+                    + std::to_string(int(g_FilmBuffer[i * 3 + 1] * scale)) +
+                    " " + std::to_string(int(g_FilmBuffer[i * 3 + 2] * scale));
+
+        if (i % g_FilmWidth == (g_FilmWidth - 1)) {
+            ppm_text += "\n";
+        } else {
+            ppm_text += " ";
+        }
+
+        writing_file << ppm_text;
+    }
+    writing_file.close();
+
+    std::cout << "Save complete" << std::endl;
+}
+
 void updateFilm() {
+    for (int i = 0; i < g_FilmWidth * g_FilmHeight; i++) {
+        if (g_CountBuffer[i] > 0) {
+            g_FilmBuffer[i * 3] = dClamp(g_AccumulationBuffer[i * 3]
+                                         / g_CountBuffer[i], 0, 1);
+            g_FilmBuffer[i * 3 + 1] = dClamp(g_AccumulationBuffer[i * 3 + 1]
+                                             / g_CountBuffer[i], 0, 1);
+            g_FilmBuffer[i * 3 + 2] = dClamp(g_AccumulationBuffer[i * 3 + 2]
+                                             / g_CountBuffer[i], 0, 1);
+
+            if (g_CountBuffer[i] == save_border && !save_flag) {
+                // 保存処理
+                saveFilm();
+                save_flag = true;
+            }
+        } else {
+            g_FilmBuffer[i * 3] = 0.0;
+            g_FilmBuffer[i * 3 + 1] = 0.0;
+            g_FilmBuffer[i * 3 + 2] = 0.0;
+        }
+    }
     glBindTexture(GL_TEXTURE_2D, g_FilmTexture);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, g_FilmWidth, g_FilmHeight, GL_RGB,
                     GL_FLOAT, g_FilmBuffer);
+
+}
+
+void resetFilm() {
+    memset(g_AccumulationBuffer, 0, sizeof(float) * g_FilmWidth *
+                                    g_FilmHeight * 3);
+    memset(g_CountBuffer, 0, sizeof(int) * g_FilmWidth * g_FilmHeight);
+
+    save_flag = false;
 }
 
 void drawFilm() {
@@ -141,59 +209,6 @@ void clearRayTracedResult() {
     memset(g_FilmBuffer, 0, sizeof(float) * g_FilmWidth * g_FilmHeight * 3);
 }
 
-void
-makeRectangle(const Eigen::Vector3d &centerPos, const Eigen::Vector3d &widthVec,
-              const Eigen::Vector3d &heightVec, const Eigen::Vector3d &color,
-              RectangleObj &out_Rect) {
-    out_Rect.centerPos = centerPos;
-    out_Rect.widthVec = widthVec;
-    out_Rect.heightVec = heightVec;
-    out_Rect.color = rgbNormalize(color);
-    const Eigen::Vector3d v1 = centerPos - widthVec - heightVec;
-    const Eigen::Vector3d v2 = centerPos + widthVec + heightVec;
-    const Eigen::Vector3d v3 = centerPos - widthVec + heightVec;
-    out_Rect.n = ((v1 - v3).cross(v2 - v3)).normalized();
-}
-
-void raySquareIntersection(const RectangleObj &rect, const int in_Triangle_idx,
-                           const Ray &in_Ray, RayHit &out_Result) {
-    out_Result.t = __FAR__;
-
-    const Eigen::Vector3d v1 = rect.centerPos - rect.widthVec - rect.heightVec;
-    const Eigen::Vector3d v2 = rect.centerPos + rect.widthVec + rect.heightVec;
-    const Eigen::Vector3d v3 = rect.centerPos - rect.widthVec + rect.heightVec;
-
-    Eigen::Vector3d triangle_normal = (v1 - v3).cross(v2 - v3);
-    triangle_normal.normalize();
-
-    const double denominator = triangle_normal.dot(in_Ray.d);
-    if (denominator >= 0.0)
-        return;
-
-    const double t = triangle_normal.dot(v3 - in_Ray.o) / denominator;
-    if (t <= 0.0)
-        return;
-
-    const Eigen::Vector3d x = in_Ray.o + t * in_Ray.d;
-
-    Eigen::Matrix<double, 3, 2> A;
-    A.col(0) = v1 - v3;
-    A.col(1) = v2 - v3;
-
-    Eigen::Matrix2d ATA = A.transpose() * A;
-    const Eigen::Vector2d b = A.transpose() * (x - v3);
-
-    const Eigen::Vector2d alpha_beta = ATA.inverse() * b;
-
-    if (alpha_beta.x() < 0.0 || 1.0 < alpha_beta.x() || alpha_beta.y() < 0.0 ||
-        1.0 < alpha_beta.y())
-        return;
-
-    out_Result.t = t;
-    out_Result.alpha = alpha_beta.x();
-    out_Result.beta = alpha_beta.y();
-}
-
 void rayTriangleIntersection(const TriMesh &triMesh, const Ray &in_Ray,
                              RayHit &out_Result) {
     out_Result.t = __FAR__;
@@ -236,13 +251,12 @@ void rayTriangleIntersection(const TriMesh &triMesh, const Ray &in_Ray,
     out_Result.beta = alpha_beta.y();
 }
 
-
 void rayTracing(const Ray &in_Ray, RayHit &io_Hit) {
     double t_min = __FAR__;
     double alpha_I = 0.0, beta_I = 0.0;
     int mesh_idx = -1;
 
-    for (int i = 0; i < (int) (sizeof(triMeshes) / sizeof(TriMesh)); i++) {
+    for (int i = 0; i < triMeshes.size(); i++) {
         RayHit temp_hit{};
         rayTriangleIntersection(triMeshes[i], in_Ray, temp_hit);
         if (temp_hit.t < t_min) {
@@ -259,7 +273,148 @@ void rayTracing(const Ray &in_Ray, RayHit &io_Hit) {
     io_Hit.mesh_idx = mesh_idx;
 }
 
-void Learn() {
+void directionalSampling(const int &pixel_idx, Eigen::Vector3d &pixel_color,
+                         const Ray &ray, const RayHit &ray_hit) {
+    // 四方八方にレイを飛ばして、色を決める
+    Eigen::Vector3d sum{0.0, 0.0, 0.0};
+    const Eigen::Vector3d x = ray.o + ray_hit.t * ray.d;
+    for (int n = 0; n < sample_num; n++) {
+        const double theta = asin(sqrt(drand48()));
+        const double phi = 2 * M_PI * drand48();
+
+        const Eigen::Vector3d omega{
+                sin(theta) * cos(phi),
+                cos(theta),
+                sin(theta) * sin(phi)
+        };
+
+        Ray _ray;
+        _ray.o = x;
+        _ray.d = omega;
+
+        RayHit _ray_hit;
+        rayTracing(_ray, _ray_hit);
+
+        // 飛ばしたレイが面に当たり、かつ光源である時、
+        if (_ray_hit.mesh_idx != -1 &&
+            triMeshes[_ray_hit.mesh_idx].is_light) {
+            sum = sum + intensity * triMeshes[_ray_hit.mesh_idx].color;
+        }
+    }
+    const Eigen::Vector3d I_n = sum;
+    pixel_color = triMeshes[ray_hit.mesh_idx].kd *
+                  triMeshes[ray_hit.mesh_idx].color.cwiseProduct(I_n);
+    g_CountBuffer[pixel_idx] += sample_num;
+}
+
+void sampleLightTriMesh(int &out_sampled_light_triMesh_idx) {
+    const double xi = drand48();
+    for (int i = 0; i < sample_lights_cdf.size(); i++) {
+        if (xi <= sample_lights_cdf[i]) {
+            out_sampled_light_triMesh_idx = lightTriMeshIdxes[i];
+            return;
+        }
+    }
+    std::cerr << "Not selected Light" << std::endl;
+    exit(EXIT_FAILURE);
+}
+
+void isVisible(const Eigen::Vector3d &x, const Eigen::Vector3d &y, const int &x_triMesh_idx, const int &y_triMesh_idx, int &out_is_visible) {
+    int is_visible_x_y;
+    int is_visible_y_x;
+    /**
+     * x->yまで光が届くか？
+     */
+    Ray ray_x_y;
+    ray_x_y.o = x;
+    ray_x_y.d = (y - x).normalized();
+    RayHit ray_hit_x_y;
+    rayTracing(ray_x_y, ray_hit_x_y);
+    /**
+     * レイが面に当たり、その面がyが存在するメッシュであるか？
+     */
+    if (ray_hit_x_y.mesh_idx != -1 && ray_hit_x_y.mesh_idx == y_triMesh_idx) {
+        is_visible_x_y = 1;
+    } else {
+        is_visible_x_y = 0;
+    }
+
+    /**
+     * y->まで光が届くか？
+     */
+    Ray _ray_y_x;
+    _ray_y_x.o = y;
+    _ray_y_x.d = (x - y).normalized();
+    RayHit _ray_hit_y_x;
+    rayTracing(_ray_y_x, _ray_hit_y_x);
+    /**
+     * レイが面に当たり、その面がXが存在するメッシュであるか？
+     */
+    if (_ray_hit_y_x.mesh_idx != -1 && _ray_hit_y_x.mesh_idx == x_triMesh_idx) {
+        is_visible_y_x = 1;
+    } else {
+        is_visible_y_x = 0;
+    }
+    out_is_visible = is_visible_y_x * is_visible_x_y;
+}
+
+void areaSampling(const int &pixel_idx, Eigen::Vector3d &pixel_color,
+                  const Ray &ray, const RayHit &ray_hit) {
+    Eigen::Vector3d sum{0.0, 0.0, 0.0};
+    for (int i = 0; i < sample_num; i++) {
+        // L_iを用意する
+        /**
+         * 複数光源の中から1つをランダムに選ぶ。
+         */
+        int sampled_light_triMesh_idx;
+        sampleLightTriMesh(sampled_light_triMesh_idx);
+        TriMesh sampledLightTriMesh = triMeshes[sampled_light_triMesh_idx];
+        /**
+         * 選ばれた光源面上のランダムな一点をサンプルする。
+         * y = v1 + beta * (v2 - v1) + gamma * (v3 - v1)
+         */
+        const double gamma = 1 - sqrt(drand48());
+        const double beta = (1 - gamma) * drand48();
+        // 実際に３次元上に変換する
+        const Eigen::Vector3d y =
+                sampledLightTriMesh.v1 + beta * (sampledLightTriMesh.v2 - sampledLightTriMesh.v1) + gamma * (sampledLightTriMesh.v3 - sampledLightTriMesh.v1);
+        const Eigen::Vector3d x = ray.o + ray_hit.t * ray.d;
+        const Eigen::Vector3d y_x = x - y;
+        const Eigen::Vector3d w = y_x.normalized();
+        // 光源から飛ばしたときに間に遮蔽物があるかどうかを判定するべきだがスキップします。
+        int is_visible;
+        isVisible(x, y, ray_hit.mesh_idx, sampled_light_triMesh_idx, is_visible);
+        const Eigen::Vector3d ny = sampledLightTriMesh.n;
+        const Eigen::Vector3d nx = triMeshes[ray_hit.mesh_idx].n;
+
+        const double cosx = (-w).dot(nx);
+        const double cosy = w.dot(ny);
+
+        const Eigen::Vector3d L_in = intensity * sampledLightTriMesh.color;
+        const double fr = triMeshes[ray_hit.mesh_idx].kd / M_PI;
+        const double geometry = cosx * cosy / y_x.squaredNorm() * is_visible;
+
+        sum = sum + S_A * L_in * fr * geometry;
+    }
+    const Eigen::Vector3d I_n = sum;
+    pixel_color = triMeshes[ray_hit.mesh_idx].color.cwiseProduct(I_n);
+    g_CountBuffer[pixel_idx] += sample_num;
+}
+
+void methods(const int &method_idx, const int &pixel_idx,
+             Eigen::Vector3d &pixel_color,
+             const Ray &ray, const RayHit &ray_hit) {
+    switch (method_idx) {
+        case 1:
+            directionalSampling(pixel_idx, pixel_color, ray, ray_hit);
+            break;
+        case 2:
+            areaSampling(pixel_idx, pixel_color, ray, ray_hit);
+            break;
+    }
+}
+
+void render() {
     for (int y = 0; y < g_FilmHeight; y++) {
         for (int x = 0; x < g_FilmWidth; x++) {
             const int pixel_idx = y * g_FilmWidth + x;
@@ -272,87 +427,27 @@ void Learn() {
 
             RayHit ray_hit;
             rayTracing(ray, ray_hit);
+            Eigen::Vector3d pixel_color;
             if (ray_hit.mesh_idx >= 0) {
                 if (triMeshes[ray_hit.mesh_idx].is_light == true) {
-                    // 当たった四角形が光源ならば白を返す
-                    g_FilmBuffer[pixel_idx * 3]
-                            = triMeshes[ray_hit.mesh_idx].color.x();
-                    g_FilmBuffer[pixel_idx * 3 + 1]
-                            = triMeshes[ray_hit.mesh_idx].color.y();
-                    g_FilmBuffer[pixel_idx * 3 + 2]
-                            = triMeshes[ray_hit.mesh_idx].color.z();
+                    // 当たった四角形が光源ならば光源の色を返す
+                    pixel_color = triMeshes[ray_hit.mesh_idx].color;
+                    g_CountBuffer[pixel_idx] += 1;
                 } else {
-                    // 四方八方にレイを飛ばして、色を決める
-                    Eigen::Vector3d sum{0.0, 0.0, 0.0};
-                    for (int n = 0; n < sample_num; n++) {
-                        const Eigen::Vector3d x = ray.o + ray_hit.t * ray.d;
-                        const double theta = asin(sqrt(drand48()));
-                        const double phi = 2 * M_PI * drand48();
-
-                        const Eigen::Vector3d omega{
-                                sin(theta) * cos(phi),
-                                cos(theta),
-                                sin(theta) * sin(phi)
-                        };
-
-                        Ray _ray;
-                        _ray.o = x;
-                        _ray.d = omega;
-
-                        RayHit _ray_hit;
-
-                        rayTracing(_ray, _ray_hit);
-
-                        if (_ray_hit.mesh_idx == -1 ||
-                            !triMeshes[_ray_hit.mesh_idx].is_light) {
-                            sum = sum + Eigen::Vector3d{0.0, 0.0, 0.0};
-                        } else {
-                            const Eigen::Vector3d l = x + _ray_hit.t * omega;
-                            sum = sum +
-                                  intensity *
-                                  triMeshes[_ray_hit.mesh_idx].color;
-                        }
-                    }
-                    const Eigen::Vector3d i_n = sum / sample_num;
-                    // kd は実際はr,g,b各成分に対しての反射率を持つ。
-                    const Eigen::Vector3d pixel_color =
-                            triMeshes[ray_hit.mesh_idx].kd *
-                            triMeshes[ray_hit.mesh_idx].color.cwiseProduct(i_n);
-                    g_FilmBuffer[pixel_idx * 3] = pixel_color.x();
-                    g_FilmBuffer[pixel_idx * 3 + 1] = pixel_color.y();
-                    g_FilmBuffer[pixel_idx * 3 + 2] = pixel_color.z();
+                    methods(method_idx, pixel_idx, pixel_color, ray, ray_hit);
                 }
             } else {
-                const Eigen::Vector3d pixel_color = rgbNormalize(
-                        Eigen::Vector3d{173, 216, 230});
-
-                g_FilmBuffer[pixel_idx * 3] = pixel_color.x();
-                g_FilmBuffer[pixel_idx * 3 + 1] = pixel_color.y();
-                g_FilmBuffer[pixel_idx * 3 + 2] = pixel_color.z();
+                pixel_color = rgbNormalize(background_color);
+                g_CountBuffer[pixel_idx] += 1;
             }
+
+            g_AccumulationBuffer[pixel_idx * 3] += pixel_color.x();
+            g_AccumulationBuffer[pixel_idx * 3 + 1] += pixel_color.y();
+            g_AccumulationBuffer[pixel_idx * 3 + 2] += pixel_color.z();
         }
     }
     updateFilm();
     glutPostRedisplay();
-}
-
-void drawRectangleObj(const RectangleObj &rect) {
-    glBegin(GL_TRIANGLES);
-    glColor3f(rect.color(0), rect.color(1), rect.color(2));
-    Eigen::Vector3d vertice1 = rect.centerPos + rect.widthVec + rect.heightVec;
-    Eigen::Vector3d vertice2 = rect.centerPos - rect.widthVec + rect.heightVec;
-    Eigen::Vector3d vertice3 = rect.centerPos - rect.widthVec - rect.heightVec;
-    Eigen::Vector3d vertice4 = rect.centerPos + rect.widthVec - rect.heightVec;
-
-    glVertex3f(vertice1(0), vertice1(1), vertice1(2));
-    glVertex3f(vertice2(0), vertice2(1), vertice2(2));
-    glVertex3f(vertice3(0), vertice3(1), vertice3(2));
-
-    glVertex3f(vertice1(0), vertice1(1), vertice1(2));
-    glVertex3f(vertice3(0), vertice3(1), vertice3(2));
-    glVertex3f(vertice4(0), vertice4(1), vertice4(2));
-
-    glEnd();
 }
 
 void drawTriMesh(const TriMesh &triMesh) {
@@ -378,6 +473,8 @@ void mouseDrag(int x, int y) {
         double scale = 2.0;
 
         g_Camera.rotateCameraInLocalFrameFixLookAt(dx * scale);
+        resetFilm();
+        updateFilm();
         glutPostRedisplay();
     }
 }
@@ -457,13 +554,14 @@ void display() {
 
     glEnable(GL_DEPTH_TEST);
 
-    Learn();
+    render();
 
     if (g_DrawFilm)
         drawFilm();
 
-    drawRectangleObj(rects[0]);
-    drawRectangleObj(rects[1]);
+    for (int i = 0; i < triMeshes.size(); i++) {
+        drawTriMesh(triMeshes[i]);
+    }
 
     glDisable(GL_DEPTH_TEST);
 
@@ -498,31 +596,112 @@ int main(int argc, char *argv[]) {
     /**
      * メッシュの配置
      */
-    const int num_of_elements = 2;
+    triMeshes.push_back(
+            TriMesh(Eigen::Vector3d{-2.0, 2.25, -2.0},
+                    Eigen::Vector3d{-3.0, 0.0, -2.0},
+                    Eigen::Vector3d{0.0, 0.0, -2.0},
+                    Eigen::Vector3d{215.0, 14.0, 74.0}, true, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(Eigen::Vector3d{0.25, 0.0, -2.0},
+                    Eigen::Vector3d{0.5, 1.5, -2.0},
+                    Eigen::Vector3d{-1.5, 2.25, -2.0},
+                    Eigen::Vector3d{1.0, 195.0, 215.0}, true, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(Eigen::Vector3d{1.5, 2.5, -2.0},
+                    Eigen::Vector3d{0.75, 1.0, -2.0},
+                    Eigen::Vector3d{1.75, 0.0, -2.0},
+                    Eigen::Vector3d{50.0, 205.0, 50.0}, true, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(Eigen::Vector3d{0.75, 0.75, -2.0},
+                    Eigen::Vector3d{0.5, 0.0, -2.0},
+                    Eigen::Vector3d{1.5, 0.0, -2.0},
+                    Eigen::Vector3d{255.0, 244.0, 1.0}, true, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{2.0, 1.5, -2.0},
+                    Eigen::Vector3d{2.0, 0.0, -2.0},
+                    Eigen::Vector3d{3.0, 0.0, -2.0},
+                    Eigen::Vector3d{147.0, 112.0, 219.0}, true, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{0.5, 0.25, 0.5},
+                    Eigen::Vector3d{0.25, 0.0, 0.5},
+                    Eigen::Vector3d{0.75, 0.0, 0.25},
+                    Eigen::Vector3d{255.0, 255.0, 255.0}, true, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{-1.0, 1.5, 1.25},
+                    Eigen::Vector3d{-1.0, 0.0, 1.25},
+                    Eigen::Vector3d{-1.75, 0.0, 0.5},
+                    Eigen::Vector3d{210.0, 105.0, 30.0}, true, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{0.0, 0.0, 1.5},
+                    Eigen::Vector3d{3.0, 0.0, -1.5},
+                    Eigen::Vector3d{-3.0, 0.0, -1.5},
+                    Eigen::Vector3d{255.0, 255.0, 255.0}, false, 1.0
+            ));
+
+    triMeshes.push_back(
+            TriMesh(
+                    Eigen::Vector3d{-1.0, 0.0, -1.0},
+                    Eigen::Vector3d{-0.5, 0.5, -1.0},
+                    Eigen::Vector3d{-1.5, 0.5, -1.0},
+                    Eigen::Vector3d{255.0, 255.0, 255.0}, false, 1.0
+            ));
+
+
     /**
-     * vectorで要素数を確認できるようにすれば解決？？
-     * もしくは要素数をグローバルで管理する？？
+     * 配置メッシュの情報の表示
      */
-    triMeshes = new TriMesh[num_of_elements];
-    memset(triMeshes, 0, sizeof(TriMesh) * num_of_elements);
-    triMeshes[0].setTriMesh(Eigen::Vector3d{0, 1, 0},
-                            Eigen::Vector3d{-1, 0, 0},
-                            Eigen::Vector3d{1, 0, 0},
-                            Eigen::Vector3d{255, 255, 255}, true, 1);
+    std::cout << "Print triMeshes information" << std::endl;
+    std::cout << triMeshes.size() << " elements in triMeshes" << std::endl;
 
-    triMeshes[1].setTriMesh(Eigen::Vector3d{0, 0, 1},
-                            Eigen::Vector3d{1, 0, 0},
-                            Eigen::Vector3d{-1, 0, 0},
-                            Eigen::Vector3d{100, 100, 255}, false, 1);
-
-    std::cout << "各TriMeshの情報を表示します" << std::endl;
-    std::cout << sizeof(triMeshes) << std::endl;
-    std::cout << sizeof(TriMesh) << std::endl;
-
-
-    for (int i = 0; i < (int) (sizeof(triMeshes) / sizeof(TriMesh)); i++) {
+    for (int i = 0; i < triMeshes.size(); i++) {
         triMeshes[i].printInfo();
     }
+
+    /**
+     * 配置メッシュの中で光源のものをリストに格納する
+     */
+    for (int i = 0; i < triMeshes.size(); i++) {
+        if (triMeshes[i].is_light) {
+            lightTriMeshIdxes.push_back(i);
+        }
+    }
+
+    /**
+     * 光源を選択する累積分布関数を作る。
+     */
+    for (int i = 0; i < lightTriMeshIdxes.size(); i++) {
+        if (i == 0) {
+            sample_lights_cdf.push_back(triMeshes[lightTriMeshIdxes[i]].A);
+        } else {
+            sample_lights_cdf.push_back(sample_lights_cdf[i - 1] + triMeshes[lightTriMeshIdxes[i]].A);
+        }
+        S_A += triMeshes[lightTriMeshIdxes[i]].A;
+    }
+
+    std::cout << "sample_lights_cdf" << std::endl;
+    for (int i = 0; i < lightTriMeshIdxes.size(); i++) {
+        sample_lights_cdf[i] = sample_lights_cdf[i] / S_A;
+        std::cout << i << ":\t" << sample_lights_cdf[i] << std::endl;
+    }
+
     /**
      * 乱数シード値の設定
      */

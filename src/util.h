@@ -9,6 +9,7 @@
 
 void randInit();
 double drand48();
+double dClamp(const double &val, const double &min, const double &max);
 Eigen::Vector3d rgbNormalize(const Eigen::Vector3d rgb);
 
 #endif //TRI_RENDER_UTIL_H

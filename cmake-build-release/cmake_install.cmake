@@ -1,4 +1,4 @@
-# Install script for directory: C:/CGProgramming/CLion/workspace/tri_render
+# Install script for directory: C:/Users/kango/CGProgramming/CLion/workspace/tri_render
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -45,5 +45,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "C:/CGProgramming/CLion/workspace/tri_render/cmake-build-release/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "C:/Users/kango/CGProgramming/CLion/workspace/tri_render/cmake-build-release/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")

@@ -29,6 +29,7 @@ public:
     Eigen::Vector3d n;
     bool is_light;
     double kd;
+    double A;
 };
 
 

@@ -15,6 +15,11 @@ TriMesh::TriMesh(const Eigen::Vector3d &v1, const Eigen::Vector3d &v2,
                                             is_light(isLight), kd(kd) {
     this->n = ((v2 - v1).cross(v3 - v1)).normalized();
     this->color = rgbNormalize(color255);
+
+    /**
+     * 面積の計算
+     */
+     this->A = 0.5 * ((v2 - v1).cross(v3- v1)).norm();
 }
 
 /**
@@ -45,17 +50,17 @@ void TriMesh::setTriMesh(const Eigen::Vector3d &v1, const Eigen::Vector3d &v2,
  */
 void TriMesh::printInfo() {
     std::cout << "Name:\t" << this << std::endl;
-    std::cout << "v1:\t{" << this->v1.x() << ", " << this->v1.y() << ", " <<
+    std::cout << "v1:\t{" << this->v1.x() << "," << this->v1.y() << "," <<
               this->v1.z() << "}" << std::endl;
-    std::cout << "v2:\t{" << this->v2.x() << ", " << this->v2.y() << ", " <<
+    std::cout << "v2:\t{" << this->v2.x() << "," << this->v2.y() << "," <<
               this->v2.z() << "}" << std::endl;
-    std::cout << "v3:\t{" << this->v3.x() << ", " << this->v3.y() << ", " <<
+    std::cout << "v3:\t{" << this->v3.x() << "," << this->v3.y() << "," <<
               this->v3.z() << "}" << std::endl;
-    std::cout << "n:\t{" << this->n.x() << ", " << this->n.y() << ", " <<
+    std::cout << "n:\t{" << this->n.x() << "," << this->n.y() << "," <<
               this->n.z() << "}" << std::endl;
     std::cout << "isLight:\t" << this->is_light << std::endl;
-    std::cout << "color:\t{" << this->color.x() << ", " << this->color.y() <<
-              ", " << this->color.z() << "}" << std::endl;
+    std::cout << "color:\t{" << this->color.x() << "," << this->color.y() <<
+              "," << this->color.z() << "}" << std::endl;
     std::cout << "kd:\t" << this->kd << std::endl;
     std::cout << "-------------------------------" << std::endl;
 }
