@@ -24,15 +24,15 @@ struct RayHit {
 
 const double __FAR__ = 1.0e33;
 
-const int g_FilmWidth = 640;
-const int g_FilmHeight = 480;
+const int g_FilmWidth = 1280;
+const int g_FilmHeight = 960;
 float *g_FilmBuffer = nullptr;
 GLuint g_FilmTexture = 0;
 
 bool g_DrawFilm = true;
 
-int width = 640;
-int height = 480;
+int width = 1280;
+int height = 960;
 
 MouseMode g_MouseMode = MM_CAMERA;
 int mx, my;
@@ -42,25 +42,28 @@ double g_FrameSize_WindowSize_Scale_y = 1.0;
 
 Camera g_Camera;
 
+std::vector<TriMeshObj> triMeshObjs;
 std::vector<TriMesh> triMeshes;
 std::vector<int> lightTriMeshIdxes;
 
 std::vector<double> sample_lights_cdf;
 
-const int sample_num = 20;
+const int sample_num = 1;
+int total_sample_num = 0;
 
-double intensity = 100;
+double intensity = 200;
 
 float *g_AccumulationBuffer = nullptr;
 int *g_CountBuffer = nullptr;
 
 bool save_flag = false;
+bool exist_film = true;
 
 constexpr int save_border = 1000;
 
 const Eigen::Vector3d background_color{215, 230, 250};
 
-constexpr int method_idx = 2;
+constexpr int METHOD_IDX = 2;
 
 double S_A = 0; // 光源面の面積の合計
 
@@ -85,7 +88,7 @@ void initFilm() {
 void saveFilm() {
     std::cout << "Save start" << std::endl;
     std::ofstream writing_file;
-    std::string filename = "method_" + std::to_string(method_idx) + ".ppm";
+    std::string filename = "method_" + std::to_string(METHOD_IDX) + "_" + std::to_string(total_sample_num) + ".ppm";
 
     const int scale = 10000;
 
@@ -111,7 +114,7 @@ void saveFilm() {
         writing_file << ppm_text;
     }
     writing_file.close();
-
+    std::cout << "Total sample number:\t" << total_sample_num << std::endl;
     std::cout << "Save complete" << std::endl;
 }
 
@@ -146,7 +149,7 @@ void resetFilm() {
     memset(g_AccumulationBuffer, 0, sizeof(float) * g_FilmWidth *
                                     g_FilmHeight * 3);
     memset(g_CountBuffer, 0, sizeof(int) * g_FilmWidth * g_FilmHeight);
-
+    total_sample_num = 0;
     save_flag = false;
 }
 
@@ -440,6 +443,7 @@ void methods(const int &method_idx, const int &pixel_idx,
 }
 
 void render() {
+    if (!exist_film) return;
     for (int y = 0; y < g_FilmHeight; y++) {
         for (int x = 0; x < g_FilmWidth; x++) {
             const int pixel_idx = y * g_FilmWidth + x;
@@ -459,7 +463,7 @@ void render() {
                     pixel_color = triMeshes[ray_hit.mesh_idx].color;
                     g_CountBuffer[pixel_idx] += 1;
                 } else {
-                    methods(method_idx, pixel_idx, pixel_color, ray, ray_hit);
+                    methods(METHOD_IDX, pixel_idx, pixel_color, ray, ray_hit);
                 }
             } else {
                 pixel_color = rgbNormalize(background_color);
@@ -471,6 +475,7 @@ void render() {
             g_AccumulationBuffer[pixel_idx * 3 + 2] += pixel_color.z();
         }
     }
+    total_sample_num += sample_num;
     updateFilm();
     glutPostRedisplay();
 }
@@ -524,6 +529,11 @@ void key(unsigned char key, int x, int y) {
         case 'F':
             g_DrawFilm = !g_DrawFilm;
             glutPostRedisplay();
+            exist_film = !exist_film;
+            break;
+        case 'p':
+        case 'P':
+            saveFilm();
             break;
     }
 }
@@ -545,27 +555,6 @@ void projection_and_modelview(const Camera &in_Camera) {
               in_Camera.getEyePoint().z(), lookAtPoint.x(), lookAtPoint.y(),
               lookAtPoint.z(), in_Camera.getYVector().x(),
               in_Camera.getYVector().y(), in_Camera.getYVector().z());
-}
-
-void drawFloor() {
-    glBegin(GL_TRIANGLES);
-    for (int j = -20; j < 20; j++) {
-        for (int i = -20; i < 20; i++) {
-            int checker_bw = (i + j) % 2;
-            if (checker_bw == 0) {
-                glColor3f(0.3, 0.3, 0.3);
-
-                glVertex3f(i * 0.5, 0.0, j * 0.5);
-                glVertex3f(i * 0.5, 0.0, (j + 1) * 0.5);
-                glVertex3f((i + 1) * 0.5, 0.0, j * 0.5);
-
-                glVertex3f(i * 0.5, 0.0, (j + 1) * 0.5);
-                glVertex3f((i + 1) * 0.5, 0.0, (j + 1) * 0.5);
-                glVertex3f((i + 1) * 0.5, 0.0, j * 0.5);
-            }
-        }
-    }
-    glEnd();
 }
 
 void display() {
@@ -691,117 +680,79 @@ int main(int argc, char *argv[]) {
                     Eigen::Vector3d{255.0, 255.0, 255.0}, false, 1.0
             ));
     **/
-    TriMeshObj triMeshObjs[4];
-    triMeshObjs[0] = TriMeshObj(Eigen::Vector3d{255, 255, 255},
-                                false, 1.0);
-    triMeshObjs[0].setRectangleMesh(Eigen::Vector3d{0.0, -1.5, 0.0},
-                                    Eigen::Vector3d{2.5, 0.0, 0.0},
-                                    Eigen::Vector3d{0.0, 0.0, -3.0});
 
-    triMeshObjs[1] = TriMeshObj(Eigen::Vector3d{255, 255, 255},
-                                false, 1.0);
-    triMeshObjs[1].setRectangleMesh(Eigen::Vector3d{0.0, 0.75, -3.0},
-                                    Eigen::Vector3d{2.5, 0.0, 0.0},
-                                    Eigen::Vector3d{0.0, 2.25, 0.0});
+    TriMeshObj triMeshObj = TriMeshObj(Eigen::Vector3d{214, 198, 175},
+                                       false, 1.0);
 
-    triMeshObjs[2] = TriMeshObj(Eigen::Vector3d{255, 255, 255},
-                                false, 1.0);
-    triMeshObjs[2].setRectangleMesh(Eigen::Vector3d{-2.5, 0.75, -0.75},
-                                    Eigen::Vector3d{0.0, 0.0, -2.25},
-                                    Eigen::Vector3d{0.0, 2.25, 0.0});
+    /**
+     * 床
+     */
+    triMeshObj.setRectangleMesh(Eigen::Vector3d{0.0, -1.5, 0.0},
+                                Eigen::Vector3d{2.5, 0.0, 0.0},
+                                Eigen::Vector3d{0.0, 0.0, -3.0});
+    triMeshObjs.push_back(triMeshObj);
 
-    triMeshObjs[3] = TriMeshObj(Eigen::Vector3d{255, 255, 255},
-                                false, 1.0);
-    triMeshObjs[3].setRectangleMesh(Eigen::Vector3d{2.5, 0.75, -0.75},
-                                    Eigen::Vector3d{0.0, 0.0, 2.25},
-                                    Eigen::Vector3d{0.0, 2.25, 0.0});
+    /**
+     * 後ろ壁
+     */
+    triMeshObj.setRectangleMesh(Eigen::Vector3d{0.0, 1.0, -3.0},
+                                Eigen::Vector3d{2.5, 0.0, 0.0},
+                                Eigen::Vector3d{0.0, 2.5, 0.0});
+    triMeshObjs.push_back(triMeshObj);
+    /**
+     * 左壁
+     */
+    triMeshObj.setRectangleMesh(Eigen::Vector3d{-2.5, 1.0, 0.0},
+                                Eigen::Vector3d{0.0, 0.0, -3.0},
+                                Eigen::Vector3d{0.0, 2.5, 0.0});
+    triMeshObjs.push_back(triMeshObj);
+    /**
+     * 右壁
+     */
+    triMeshObj.setRectangleMesh(Eigen::Vector3d{2.5, 1.0, 0.0},
+                                Eigen::Vector3d{0.0, 0.0, 3.0},
+                                Eigen::Vector3d{0.0, 2.5, 0.0});
+    triMeshObjs.push_back(triMeshObj);
+    /**
+     * 天井
+     */
+    triMeshObj.setRectangleMesh(Eigen::Vector3d{0.0, 3.5, 0.0},
+                                Eigen::Vector3d{2.5, 0.0, 0.0},
+                                Eigen::Vector3d{0.0, 0.0, 3.0});
+    triMeshObjs.push_back(triMeshObj);
+    /**
+     * 前壁
+     */
+    triMeshObj.setRectangleMesh(Eigen::Vector3d{0.0, 1.0, 3.0},
+                                Eigen::Vector3d{-2.5, 0.0, 0.0},
+                                Eigen::Vector3d{0.0, 2.5, 0.0});
+    triMeshObjs.push_back(triMeshObj);
+    /**
+     * Lights
+     */
+    triMeshObj = TriMeshObj(Eigen::Vector3d{255, 105, 180}, true, 1.0);
+    triMeshObj.setOctahedron(Eigen::Vector3d{0.0, 0.75, -0.5}, Eigen::Vector3d{0.15, 0.0, 0.0}, Eigen::Vector3d{0.0, 0.15, 0.0},
+                             Eigen::Vector3d{0.0, 0.0, 0.15});
+    triMeshObjs.push_back(triMeshObj);
 
-    for (int i = 0; i < 4; i++) {
+    triMeshObj = TriMeshObj(Eigen::Vector3d{105, 255, 255}, true, 1.0);
+    triMeshObj.setOctahedron(Eigen::Vector3d{-1.25, 1.25, 0.5}, Eigen::Vector3d{0.15, 0.0, 0.0}, Eigen::Vector3d{0.0, 0.15, 0.0},
+                             Eigen::Vector3d{0.0, 0.0, 0.15});
+    triMeshObjs.push_back(triMeshObj);
+
+    triMeshObj = TriMeshObj(Eigen::Vector3d{105, 255, 105}, true, 1.0);
+    triMeshObj.setOctahedron(Eigen::Vector3d{1.25, 1.25, 0.5}, Eigen::Vector3d{0.15, 0.0, 0.0}, Eigen::Vector3d{0.0, 0.15, 0.0},
+                             Eigen::Vector3d{0.0, 0.0, 0.15});
+    triMeshObjs.push_back(triMeshObj);
+
+    /**
+     * TriMEshObj.triMeshesをtriMeshesに追加
+     */
+    for (int i = 0; i < triMeshObjs.size(); i++) {
         for (int j = 0; j < triMeshObjs[i].triMeshes.size(); j++) {
             triMeshes.push_back(triMeshObjs[i].triMeshes[j]);
         }
     }
-
-    /**
-     * light1
-     */
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{0.0, 0.3, -1.45},
-                    Eigen::Vector3d{0.15, -0.3, -1.6},
-                    Eigen::Vector3d{-0.15, -0.3, -1.6},
-                    Eigen::Vector3d{255, 105, 180}, true, 1.0
-            ));
-
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{0.0, 0.3, -1.45},
-                    Eigen::Vector3d{0.0, -0.3, -1.3},
-                    Eigen::Vector3d{0.15, -0.3, -1.6},
-                    Eigen::Vector3d{255, 105, 180}, true, 1.0
-            ));
-
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{0.0, 0.3, -1.45},
-                    Eigen::Vector3d{-0.15, -0.3, -1.6},
-                    Eigen::Vector3d{0.0, -0.3, -1.3},
-                    Eigen::Vector3d{255, 105, 180}, true, 1.0
-            ));
-
-    /**
-     * light2
-     */
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{1.4, 0.3, 0.0},
-                    Eigen::Vector3d{1.55, -0.3, -0.15},
-                    Eigen::Vector3d{1.25, -0.3, -0.15},
-                    Eigen::Vector3d{105, 255, 255}, true, 1.0
-            ));
-
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{1.4, 0.3, 0.0},
-                    Eigen::Vector3d{1.4, -0.3, 0.15},
-                    Eigen::Vector3d{1.55, -0.3, -0.15},
-                    Eigen::Vector3d{105, 255, 255}, true, 1.0
-            ));
-
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{1.4, 0.3, 0.0},
-                    Eigen::Vector3d{1.25, -0.3, -0.15},
-                    Eigen::Vector3d{1.4, -0.3, 0.15},
-                    Eigen::Vector3d{105, 255, 255}, true, 1.0
-            ));
-
-    /**
-     * light3 105 G:255 B:105
-     */
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{-1.4, 0.3, 0.0},
-                    Eigen::Vector3d{-1.25, -0.3, -0.15},
-                    Eigen::Vector3d{-1.55, -0.3, -0.15},
-                    Eigen::Vector3d{105, 255, 105}, true, 1.0
-            ));
-
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{-1.4, 0.3, 0.0},
-                    Eigen::Vector3d{-1.4, -0.3, 0.15},
-                    Eigen::Vector3d{-1.25, -0.3, -0.15},
-                    Eigen::Vector3d{105, 255, 105}, true, 1.0
-            ));
-
-    triMeshes.push_back(
-            TriMesh(
-                    Eigen::Vector3d{-1.4, 0.3, 0.0},
-                    Eigen::Vector3d{-1.55, -0.3, -0.15},
-                    Eigen::Vector3d{-1.4, -0.3, 0.15},
-                    Eigen::Vector3d{105, 255, 105}, true, 1.0
-            ));
 
     /**
      * 配置メッシュの情報の表示

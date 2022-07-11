@@ -21,8 +21,13 @@ public:
     TriMeshObj(const Eigen::Vector3d &color255, const bool
     &isLight, const double &kd);
 
+    void clearTriMeshes();
+
     void setRectangleMesh(const Eigen::Vector3d &center, const
     Eigen::Vector3d &width, const Eigen::Vector3d &height);
+
+    void setOctahedron(const Eigen::Vector3d &center, const
+    Eigen::Vector3d &width, const Eigen::Vector3d &height, const Eigen::Vector3d &depth);
 };
 
 
