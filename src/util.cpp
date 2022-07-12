@@ -5,12 +5,14 @@
 #include <time.h>
 #include <stdlib.h>
 #include "Eigen/Dense"
+#include "util.h"
+
 
 /**
  * 乱数のシードの設定
  */
 void randInit() {
-    srand((unsigned)time(NULL));
+    srand((unsigned) time(NULL));
 }
 
 /**
@@ -51,4 +53,42 @@ Eigen::Vector3d rgbNormalize(const Eigen::Vector3d rgb) {
     };
 
     return out_rgb;
+}
+
+/**
+ * 任意の座標軸におけるxベクトルをデカルト座標軸上で表現したベクトルを返す
+ * @param x 任意の座標軸におけるベクトル
+ * @param p 任意のx軸
+ * @param q 任意のy軸
+ * @param r 任意のz軸
+ * @return デカルト座標系で表現したベクトル
+ */
+Eigen::Vector3d coordinateTransformation(const Eigen::Vector3d &x,
+                                         const Eigen::Vector3d &p,
+                                         const Eigen::Vector3d &q,
+                                         const Eigen::Vector3d &r) {
+    const Eigen::Vector3d pn = p.normalized();
+    const Eigen::Vector3d qn = q.normalized();
+    const Eigen::Vector3d rn = r.normalized();
+
+    return Eigen::Vector3d{
+            x.x() * pn.x() + x.y() * qn.x() + x.z() * rn.x(),
+            x.x() * pn.y() + x.y() * qn.y() + x.z() * rn.y(),
+            x.x() * pn.z() + x.y() * qn.z() + x.z() * rn.z()
+    };
+}
+
+/**
+ * y軸からの回転をtheta,x軸からz軸への回転をphiとするときの
+ * 立体角omegaの方向ベクトルを返す
+ * @param theta
+ * @param phi
+ * @return
+ */
+Eigen::Vector3d plainToSolidAngle(const double &theta, const double &phi) {
+    return Eigen::Vector3d{
+            sin(theta) * cos(phi),
+            cos(theta),
+            sin(theta) * sin(phi)
+    }.normalized();
 }

@@ -24,15 +24,15 @@ struct RayHit {
 
 const double __FAR__ = 1.0e33;
 
-const int g_FilmWidth = 1280;
-const int g_FilmHeight = 960;
+const int g_FilmWidth = 960;
+const int g_FilmHeight = 540;
 float *g_FilmBuffer = nullptr;
 GLuint g_FilmTexture = 0;
 
 bool g_DrawFilm = true;
 
-int width = 1280;
-int height = 960;
+int width = 960;
+int height = 540;
 
 MouseMode g_MouseMode = MM_CAMERA;
 int mx, my;
@@ -42,28 +42,26 @@ double g_FrameSize_WindowSize_Scale_y = 1.0;
 
 Camera g_Camera;
 
-std::vector<TriMeshObj> triMeshObjs;
-std::vector<TriMesh> triMeshes;
-std::vector<int> lightTriMeshIdxes;
+std::vector<TriMeshObj> triMeshObjs; //シーンにあるTriMeshObjを格納している
+std::vector<TriMesh> triMeshes; //シーン全体のTriMeshを格納している
+std::vector<int> lightTriMeshIdxes; //シーンに存在する光源のtriMeshes上でのインデックスを格納している
 
 std::vector<double> sample_lights_cdf;
 
-const int sample_num = 1;
+const int SAMPLE_NUM = 1;
 int total_sample_num = 0;
-
-double intensity = 200;
 
 float *g_AccumulationBuffer = nullptr;
 int *g_CountBuffer = nullptr;
 
-bool save_flag = false;
+bool save_film_flag = false;
 bool exist_film = true;
 
-constexpr int save_border = 1000;
+constexpr int SAVE_FILM_BORDER = 1000;
 
-const Eigen::Vector3d background_color{215, 230, 250};
+const Eigen::Vector3d BACKGROUND_COLOR{215, 230, 250};
 
-constexpr int METHOD_IDX = 2;
+constexpr int METHOD_IDX = 1;
 
 double S_A = 0; // 光源面の面積の合計
 
@@ -88,7 +86,8 @@ void initFilm() {
 void saveFilm() {
     std::cout << "Save start" << std::endl;
     std::ofstream writing_file;
-    std::string filename = "method_" + std::to_string(METHOD_IDX) + "_" + std::to_string(total_sample_num) + ".ppm";
+    std::string filename = "method_" + std::to_string(METHOD_IDX) + "_" +
+                           std::to_string(total_sample_num) + ".ppm";
 
     const int scale = 10000;
 
@@ -128,10 +127,10 @@ void updateFilm() {
             g_FilmBuffer[i * 3 + 2] = dClamp(g_AccumulationBuffer[i * 3 + 2]
                                              / g_CountBuffer[i], 0, 1);
 
-            if (g_CountBuffer[i] == save_border && !save_flag) {
+            if (g_CountBuffer[i] == SAVE_FILM_BORDER && !save_film_flag) {
                 // 保存処理
                 saveFilm();
-                save_flag = true;
+                save_film_flag = true;
             }
         } else {
             g_FilmBuffer[i * 3] = 0.0;
@@ -150,7 +149,7 @@ void resetFilm() {
                                     g_FilmHeight * 3);
     memset(g_CountBuffer, 0, sizeof(int) * g_FilmWidth * g_FilmHeight);
     total_sample_num = 0;
-    save_flag = false;
+    save_film_flag = false;
 }
 
 void drawFilm() {
@@ -277,37 +276,19 @@ void directionalSampling(const int &pixel_idx, Eigen::Vector3d &pixel_color,
     Eigen::Vector3d sum{0.0, 0.0, 0.0};
     const Eigen::Vector3d x = ray.o + ray_hit.t * ray.d;
     const TriMesh diffuseTriMesh = triMeshes[ray_hit.mesh_idx];
-    for (int n = 0; n < sample_num; n++) {
+    for (int n = 0; n < SAMPLE_NUM; n++) {
         const double theta = asin(sqrt(drand48()));
         const double phi = 2 * M_PI * drand48();
-
-        /**
-         * 拡散面上の半球でサンプリングをする
-         * 拡散面で新たに基底ベクトルを設定しランダムな方向omegaを決定する
-         * p = (v2 - v1).normalized(), q = n, r = (q × p).normalized()
-         * というp, q, rの三本のベクトルを基底ベクトルとしてランダムな方向omega
-         * 決めたとすると、デカルト座標系においては,
-         * x = ox * px + oy * qx + oz * rx
-         * y = ox * py + oy * qy + oz * ry
-         * x = ox * pz + oy * qz + oz * rz と表せる
-         */
 
         const Eigen::Vector3d p = (diffuseTriMesh.v2 -
                                    diffuseTriMesh.v1).normalized();
         const Eigen::Vector3d q = diffuseTriMesh.n;
         const Eigen::Vector3d r = (q.cross(p)).normalized();
 
-        const Eigen::Vector3d omega{
-                sin(theta) * cos(phi),
-                cos(theta),
-                sin(theta) * sin(phi)
-        };
+        const Eigen::Vector3d omega = plainToSolidAngle(theta, phi);
 
-        const Eigen::Vector3d sampledDirection = {
-                omega.x() * p.x() + omega.y() * q.x() + omega.z() * r.x(),
-                omega.x() * p.y() + omega.y() * q.y() + omega.z() * r.y(),
-                omega.x() * p.z() + omega.y() * q.z() + omega.z() * r.z()
-        };
+        const Eigen::Vector3d sampledDirection =
+                coordinateTransformation(omega, p, q, r);
         Ray _ray;
         _ray.o = x;
         _ray.d = sampledDirection;
@@ -317,15 +298,16 @@ void directionalSampling(const int &pixel_idx, Eigen::Vector3d &pixel_color,
 
         // 飛ばしたレイが面に当たり、かつ光源である時、
         if (_ray_hit.mesh_idx != -1 &&
-            triMeshes[_ray_hit.mesh_idx].is_light) {
-            const Eigen::Vector3d L_in = intensity *
-                                         triMeshes[_ray_hit.mesh_idx].color;
+            triMeshes[_ray_hit.mesh_idx].triMeshType == LIGHT) {
+            const Eigen::Vector3d L_in =
+                    triMeshes[_ray_hit.mesh_idx].intensity *
+                    triMeshes[_ray_hit.mesh_idx].color;
             sum = sum + L_in * diffuseTriMesh.kd;
         }
     }
     const Eigen::Vector3d I_n = sum;
     pixel_color = diffuseTriMesh.color.cwiseProduct(I_n);
-    g_CountBuffer[pixel_idx] += sample_num;
+    g_CountBuffer[pixel_idx] += SAMPLE_NUM;
 }
 
 void sampleLightTriMesh(int &out_sampled_light_triMesh_idx) {
@@ -363,7 +345,7 @@ void isVisible(const Eigen::Vector3d &x, const Eigen::Vector3d &y,
     }
 
     /**
-     * y->まで光が届くか？
+     * y->xまで光が届くか？
      */
     Ray _ray_y_x;
     _ray_y_x.o = y;
@@ -385,7 +367,7 @@ void areaSampling(const int &pixel_idx, Eigen::Vector3d &pixel_color,
                   const Ray &ray, const RayHit &ray_hit) {
     Eigen::Vector3d sum{0.0, 0.0, 0.0};
     const TriMesh diffuseTriMesh = triMeshes[ray_hit.mesh_idx];
-    for (int i = 0; i < sample_num; i++) {
+    for (int i = 0; i < SAMPLE_NUM; i++) {
         /**
          * 複数光源の中から1つをランダムに選ぶ。
          */
@@ -418,7 +400,8 @@ void areaSampling(const int &pixel_idx, Eigen::Vector3d &pixel_color,
         const double cosx = (-w).dot(nx);
         const double cosy = w.dot(ny);
 
-        const Eigen::Vector3d L_in = intensity * sampledLightTriMesh.color;
+        const Eigen::Vector3d L_in = sampledLightTriMesh.intensity *
+                                     sampledLightTriMesh.color;
         const double fr = diffuseTriMesh.kd / M_PI;
         const double geometry = cosx * cosy / y_x.squaredNorm() * is_visible;
 
@@ -426,7 +409,7 @@ void areaSampling(const int &pixel_idx, Eigen::Vector3d &pixel_color,
     }
     const Eigen::Vector3d I_n = sum;
     pixel_color = diffuseTriMesh.color.cwiseProduct(I_n);
-    g_CountBuffer[pixel_idx] += sample_num;
+    g_CountBuffer[pixel_idx] += SAMPLE_NUM;
 }
 
 void methods(const int &method_idx, const int &pixel_idx,
@@ -458,7 +441,7 @@ void render() {
             rayTracing(ray, ray_hit);
             Eigen::Vector3d pixel_color;
             if (ray_hit.mesh_idx >= 0) {
-                if (triMeshes[ray_hit.mesh_idx].is_light == true) {
+                if (triMeshes[ray_hit.mesh_idx].triMeshType == LIGHT) {
                     // 当たった四角形が光源ならば光源の色を返す
                     pixel_color = triMeshes[ray_hit.mesh_idx].color;
                     g_CountBuffer[pixel_idx] += 1;
@@ -466,7 +449,7 @@ void render() {
                     methods(METHOD_IDX, pixel_idx, pixel_color, ray, ray_hit);
                 }
             } else {
-                pixel_color = rgbNormalize(background_color);
+                pixel_color = rgbNormalize(BACKGROUND_COLOR);
                 g_CountBuffer[pixel_idx] += 1;
             }
 
@@ -475,7 +458,7 @@ void render() {
             g_AccumulationBuffer[pixel_idx * 3 + 2] += pixel_color.z();
         }
     }
-    total_sample_num += sample_num;
+    total_sample_num += SAMPLE_NUM;
     updateFilm();
     glutPostRedisplay();
 }
@@ -682,7 +665,7 @@ int main(int argc, char *argv[]) {
     **/
 
     TriMeshObj triMeshObj = TriMeshObj(Eigen::Vector3d{214, 198, 175},
-                                       false, 1.0);
+                                       DIFFUSE, 1.0);
 
     /**
      * 床
@@ -730,19 +713,22 @@ int main(int argc, char *argv[]) {
     /**
      * Lights
      */
-    triMeshObj = TriMeshObj(Eigen::Vector3d{255, 105, 180}, true, 1.0);
-    triMeshObj.setOctahedron(Eigen::Vector3d{0.0, 0.75, -0.5}, Eigen::Vector3d{0.15, 0.0, 0.0}, Eigen::Vector3d{0.0, 0.15, 0.0},
+    triMeshObj = TriMeshObj(Eigen::Vector3d{105, 255, 255}, LIGHT, 1.0, 50);
+    triMeshObj.setOctahedron(Eigen::Vector3d{-1.25, 1.25, 0.5},
+                             Eigen::Vector3d{0.15, 0.0, 0.0},
+                             Eigen::Vector3d{0.0, 0.15, 0.0},
                              Eigen::Vector3d{0.0, 0.0, 0.15});
     triMeshObjs.push_back(triMeshObj);
 
-    triMeshObj = TriMeshObj(Eigen::Vector3d{105, 255, 255}, true, 1.0);
-    triMeshObj.setOctahedron(Eigen::Vector3d{-1.25, 1.25, 0.5}, Eigen::Vector3d{0.15, 0.0, 0.0}, Eigen::Vector3d{0.0, 0.15, 0.0},
+    triMeshObj = TriMeshObj(Eigen::Vector3d{105, 255, 105}, LIGHT, 1.0, 50);
+    triMeshObj.setOctahedron(Eigen::Vector3d{1.25, 1.25, 0.5},
+                             Eigen::Vector3d{0.15, 0.0, 0.0},
+                             Eigen::Vector3d{0.0, 0.15, 0.0},
                              Eigen::Vector3d{0.0, 0.0, 0.15});
     triMeshObjs.push_back(triMeshObj);
 
-    triMeshObj = TriMeshObj(Eigen::Vector3d{105, 255, 105}, true, 1.0);
-    triMeshObj.setOctahedron(Eigen::Vector3d{1.25, 1.25, 0.5}, Eigen::Vector3d{0.15, 0.0, 0.0}, Eigen::Vector3d{0.0, 0.15, 0.0},
-                             Eigen::Vector3d{0.0, 0.0, 0.15});
+    triMeshObj = TriMeshObj(Eigen::Vector3d{255, 249, 245}, LIGHT, 1.0, 100);
+    triMeshObj.setSphere(Eigen::Vector3d{0.0, 1.0, 0.0}, 0.2, 5);
     triMeshObjs.push_back(triMeshObj);
 
     /**
@@ -758,21 +744,21 @@ int main(int argc, char *argv[]) {
      * 配置メッシュの情報の表示
      */
     std::cout << "Print triMeshes information" << std::endl;
-    std::cout << triMeshes.size() << " elements in triMeshes" << std::endl;
-
     for (int i = 0; i < triMeshes.size(); i++) {
         triMeshes[i].printInfo();
     }
+    std::cout << triMeshes.size() << " elements in triMeshes" << std::endl;
 
     /**
      * 配置メッシュの中で光源のものをリストに格納する
      */
     for (int i = 0; i < triMeshes.size(); i++) {
-        if (triMeshes[i].is_light) {
+        if (triMeshes[i].triMeshType == LIGHT) {
             lightTriMeshIdxes.push_back(i);
         }
     }
-
+    std::cout << lightTriMeshIdxes.size() << " elements in lightTriMeshIdxes"
+              << std::endl;
     /**
      * 光源を選択する累積分布関数を作る。
      */
@@ -786,11 +772,11 @@ int main(int argc, char *argv[]) {
         S_A += triMeshes[lightTriMeshIdxes[i]].A;
     }
 
-    std::cout << "sample_lights_cdf" << std::endl;
-    for (int i = 0; i < lightTriMeshIdxes.size(); i++) {
-        sample_lights_cdf[i] = sample_lights_cdf[i] / S_A;
-        std::cout << i << ":\t" << sample_lights_cdf[i] << std::endl;
-    }
+//    std::cout << "sample_lights_cdf" << std::endl;
+//    for (int i = 0; i < lightTriMeshIdxes.size(); i++) {
+//        sample_lights_cdf[i] = sample_lights_cdf[i] / S_A;
+//        std::cout << i << ":\t" << sample_lights_cdf[i] << std::endl;
+//    }
 
     /**
      * 乱数シード値の設定
@@ -805,7 +791,6 @@ int main(int argc, char *argv[]) {
 
     initFilm();
     clearRayTracedResult();
-
 
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 

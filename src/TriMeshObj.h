@@ -14,12 +14,11 @@ public:
     std::vector<TriMesh> triMeshes;
     Eigen::Vector3d color255;
     double kd;
-    bool is_light;
+    TriMeshType triMeshType;
+    double intensity;
 
-    TriMeshObj();
-
-    TriMeshObj(const Eigen::Vector3d &color255, const bool
-    &isLight, const double &kd);
+    TriMeshObj(const Eigen::Vector3d &color255, const TriMeshType &triMeshType,
+               const double &kd, const double &intensity = DEFAULT_INTENSITY);
 
     void clearTriMeshes();
 
@@ -27,7 +26,14 @@ public:
     Eigen::Vector3d &width, const Eigen::Vector3d &height);
 
     void setOctahedron(const Eigen::Vector3d &center, const
-    Eigen::Vector3d &width, const Eigen::Vector3d &height, const Eigen::Vector3d &depth);
+    Eigen::Vector3d &width, const Eigen::Vector3d &height,
+                       const Eigen::Vector3d &depth);
+
+    void setCone(const Eigen::Vector3d &center, const double &radius, const
+    Eigen::Vector3d &height, const int &division_num);
+
+    void setSphere(const Eigen::Vector3d &center, const double &radius,
+                   const int &latitude_division_num);
 };
 
 

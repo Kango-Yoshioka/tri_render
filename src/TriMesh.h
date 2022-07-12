@@ -7,6 +7,13 @@
 
 #include "Eigen/Dense"
 
+constexpr double DEFAULT_INTENSITY = 100;
+
+enum TriMeshType {
+    LIGHT,
+    DIFFUSE
+};
+
 class TriMesh {
 
 public:
@@ -14,11 +21,8 @@ public:
 
     TriMesh(const Eigen::Vector3d &v1, const Eigen::Vector3d &v2,
             const Eigen::Vector3d &v3, const Eigen::Vector3d &color255,
-            bool isLight, double kd);
-
-    void setTriMesh(const Eigen::Vector3d &v1, const Eigen::Vector3d &v2,
-                    const Eigen::Vector3d &v3, const Eigen::Vector3d &color255,
-                    bool isLight, double kd);
+            const TriMeshType &triMeshType, const double &kd,
+            const double &intensity = DEFAULT_INTENSITY);
 
     void printInfo();
 
@@ -27,9 +31,10 @@ public:
     Eigen::Vector3d v2;
     Eigen::Vector3d v3;
     Eigen::Vector3d n;
-    bool is_light;
+    TriMeshType triMeshType;
     double kd;
     double A;
+    double intensity;
 };
 
 
