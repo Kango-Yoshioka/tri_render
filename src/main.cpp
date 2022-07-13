@@ -24,15 +24,15 @@ struct RayHit {
 
 const double __FAR__ = 1.0e33;
 
-const int g_FilmWidth = 960;
-const int g_FilmHeight = 540;
+const int g_FilmWidth = 1280;
+const int g_FilmHeight = 720;
 float *g_FilmBuffer = nullptr;
 GLuint g_FilmTexture = 0;
 
 bool g_DrawFilm = true;
 
-int width = 960;
-int height = 540;
+int width = 1280;
+int height = 720;
 
 MouseMode g_MouseMode = MM_CAMERA;
 int mx, my;
@@ -48,7 +48,7 @@ std::vector<int> lightTriMeshIdxes; //シーンに存在する光源のtriMeshes
 
 std::vector<double> sample_lights_cdf;
 
-const int SAMPLE_NUM = 1;
+const int SAMPLE_NUM = 5;
 int total_sample_num = 0;
 
 float *g_AccumulationBuffer = nullptr;
@@ -61,7 +61,7 @@ constexpr int SAVE_FILM_BORDER = 1000;
 
 const Eigen::Vector3d BACKGROUND_COLOR{215, 230, 250};
 
-constexpr int METHOD_IDX = 1;
+constexpr int METHOD_IDX = 2;
 
 double S_A = 0; // 光源面の面積の合計
 
@@ -772,11 +772,11 @@ int main(int argc, char *argv[]) {
         S_A += triMeshes[lightTriMeshIdxes[i]].A;
     }
 
-//    std::cout << "sample_lights_cdf" << std::endl;
-//    for (int i = 0; i < lightTriMeshIdxes.size(); i++) {
-//        sample_lights_cdf[i] = sample_lights_cdf[i] / S_A;
-//        std::cout << i << ":\t" << sample_lights_cdf[i] << std::endl;
-//    }
+    //std::cout << "sample_lights_cdf" << std::endl;
+    for (int i = 0; i < lightTriMeshIdxes.size(); i++) {
+        sample_lights_cdf[i] = sample_lights_cdf[i] / S_A;
+        //std::cout << i << ":\t" << sample_lights_cdf[i] << std::endl;
+    }
 
     /**
      * 乱数シード値の設定
