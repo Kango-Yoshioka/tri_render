@@ -48,7 +48,7 @@ std::vector<int> lightTriMeshIdxes; //シーンに存在する光源のtriMeshes
 
 std::vector<double> sample_lights_cdf;
 
-const int SAMPLE_NUM = 5;
+const int SAMPLE_NUM = 1;
 int total_sample_num = 0;
 
 float *g_AccumulationBuffer = nullptr;
@@ -312,14 +312,10 @@ void directionalSampling(const int &pixel_idx, Eigen::Vector3d &pixel_color,
 
 void sampleLightTriMesh(int &out_sampled_light_triMesh_idx) {
     const double xi = drand48();
-    for (int i = 0; i < sample_lights_cdf.size(); i++) {
-        if (xi <= sample_lights_cdf[i]) {
-            out_sampled_light_triMesh_idx = lightTriMeshIdxes[i];
-            return;
-        }
-    }
-    std::cerr << "Not selected Light" << std::endl;
-    exit(EXIT_FAILURE);
+    auto itr = std::lower_bound(std::begin(sample_lights_cdf), std::end(sample_lights_cdf), xi);
+    const int sampled_light_triMesh_idx = itr - std::begin(sample_lights_cdf);
+    out_sampled_light_triMesh_idx = lightTriMeshIdxes[sampled_light_triMesh_idx];
+    return;
 }
 
 void isVisible(const Eigen::Vector3d &x, const Eigen::Vector3d &y,
@@ -728,7 +724,7 @@ int main(int argc, char *argv[]) {
     triMeshObjs.push_back(triMeshObj);
 
     triMeshObj = TriMeshObj(Eigen::Vector3d{255, 249, 245}, LIGHT, 1.0, 100);
-    triMeshObj.setSphere(Eigen::Vector3d{0.0, 1.0, 0.0}, 0.2, 5);
+    triMeshObj.setSphere(Eigen::Vector3d{0.0, 1.0, 0.0}, 0.2, 8);
     triMeshObjs.push_back(triMeshObj);
 
     /**
